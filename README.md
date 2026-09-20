@@ -1,5 +1,3 @@
-Yes. Since your mini-kernel is being developed on **Windows 11 + WSL2 Ubuntu + QEMU**, you can put the following directly into your `README.md`.
-
 # Mini Kernel
 
 A simple educational 32-bit mini-kernel developed in **C and x86 Assembly**. The project demonstrates basic operating-system concepts such as booting, terminal output, memory management, paging, processes, scheduling, interrupts, and a basic shell.
@@ -26,16 +24,16 @@ A simple educational 32-bit mini-kernel developed in **C and x86 Assembly**. The
 
 ## 2. Technologies Used
 
-* C
-* x86 Assembly
-* NASM
-* GCC
-* GNU LD
-* GRUB
-* QEMU
-* WSL2
-* Ubuntu
-* Git/GitHub
+- C
+- x86 Assembly
+- NASM
+- GCC
+- GNU LD
+- GRUB
+- QEMU
+- WSL2
+- Ubuntu
+- Git/GitHub
 
 ## 3. Requirements
 
@@ -43,11 +41,11 @@ A simple educational 32-bit mini-kernel developed in **C and x86 Assembly**. The
 
 Install:
 
-* Windows 10/11
-* WSL2
-* Ubuntu
-* VS Code
-* QEMU
+- Windows 10/11
+- WSL2
+- Ubuntu
+- VS Code
+- QEMU
 
 The actual kernel compilation should be performed inside **WSL Ubuntu**.
 
@@ -744,19 +742,19 @@ git push
 
 | Component        | Status               |
 | ---------------- | -------------------- |
-| Bootloader       | ✅                    |
-| GRUB boot        | ✅                    |
-| VGA terminal     | ✅                    |
+| Bootloader       | ✅                   |
+| GRUB boot        | ✅                   |
+| VGA terminal     | ✅                   |
 | Interrupt module | 🟡 Basic/stub        |
 | Memory manager   | 🟡 Basic             |
 | Paging           | 🟡 Basic             |
 | Process manager  | 🟡 Basic             |
 | Scheduler        | 🟡 Basic round-robin |
-| Keyboard input   | ✅ Polling            |
+| Keyboard input   | ✅ Polling           |
 | Shell            | 🟡 Basic             |
-| System calls     | ⏳                    |
-| Real IDT         | ⏳                    |
-| Timer interrupt  | ⏳                    |
-| User mode        | ⏳                    |
+| System calls     | ⏳                   |
+| Real IDT         | ⏳                   |
+| Timer interrupt  | ⏳                   |
+| User mode        | ⏳                   |
 
 **Important:** your current `interrupts.c` is only an initialization placeholder, and the current scheduler does not yet run concurrently with the shell. Those should be treated as future implementation stages rather than claiming that the kernel already has full hardware interrupt-driven process scheduling.
