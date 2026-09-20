@@ -14,6 +14,8 @@ void kernel_main()
     terminal_write("================\n");
 
     interrupts_initialize();
+    interrupt_software_test();
+    terminal_write("Timer initialized at 100 Hz\n");
     memory_initialize();
     process_initialize();
     scheduler_initialize();

@@ -3,8 +3,10 @@ LD = ld
 AS = nasm
 GRUB_MKRESCUE = grub2-mkrescue
 QEMU = qemu-system-i386
+CFLAGS = -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-builtin \
+	-fno-unwind-tables -fno-asynchronous-unwind-tables
 
-OBJECTS = boot.o kernel.o terminal.o interrupts.o memory.o paging.o \
+OBJECTS = boot.o interrupts_asm.o kernel.o terminal.o interrupts.o memory.o paging.o \
 	process.o scheduler.o shell.o
 
 .PHONY: all iso run clean
@@ -17,29 +19,32 @@ kernel.bin: $(OBJECTS)
 boot.o: boot/boot.asm
 	$(AS) -f elf32 $< -o $@
 
+interrupts_asm.o: boot/interrupts.asm
+	$(AS) -f elf32 $< -o $@
+
 kernel.o: kernel/kernel.c
-	$(CC) -m32 -ffreestanding -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 terminal.o: kernel/terminal.c
-	$(CC) -m32 -ffreestanding -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 interrupts.o: kernel/interrupts.c
-	$(CC) -m32 -ffreestanding -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 memory.o: kernel/memory.c
-	$(CC) -m32 -ffreestanding -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 paging.o: kernel/paging.c
-	$(CC) -m32 -ffreestanding -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 process.o: kernel/process.c
-	$(CC) -m32 -ffreestanding -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 scheduler.o: kernel/scheduler.c
-	$(CC) -m32 -ffreestanding -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 shell.o: shell/shell.c
-	$(CC) -m32 -ffreestanding -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 iso: kernel.bin
 	rm -rf iso

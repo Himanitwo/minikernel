@@ -1,30 +1,56 @@
 #include "shell.h"
 #include "../kernel/terminal.h"
 #include "../kernel/process.h"
+#include "../kernel/interrupts.h"
+#include "../kernel/scheduler.h"
 
 static char command[50];
 static int command_length = 0;
 
-static unsigned char inb(unsigned short port)
+static void test_process()
 {
-    unsigned char value;
-
-    __asm__ volatile (
-        "inb %1, %0"
-        : "=a"(value)
-        : "Nd"(port)
-    );
-
-    return value;
+    for (;;)
+        __asm__ volatile("hlt");
 }
 
-static unsigned char keyboard_read()
+static const char *process_state_name(ProcessState state)
 {
-    while (!(inb(0x64) & 1))
+    switch (state)
     {
+        case READY: return "READY";
+        case RUNNING: return "RUNNING";
+        case WAITING: return "WAITING";
+        case TERMINATED: return "TERMINATED";
+        default: return "UNKNOWN";
+    }
+}
+
+static void write_decimal(int value)
+{
+    char digits[12];
+    int length = 0;
+
+    if (value == 0)
+    {
+        terminal_putchar('0');
+        return;
     }
 
-    return inb(0x60);
+    if (value < 0)
+    {
+        terminal_putchar('-');
+        value = -value;
+    }
+
+    while (value > 0)
+    {
+        digits[length] = '0' + (value % 10);
+        value /= 10;
+        length++;
+    }
+
+    while (length > 0)
+        terminal_putchar(digits[--length]);
 }
 
 static char scancode_to_ascii(unsigned char scancode)
@@ -107,6 +133,9 @@ static void execute_command()
         terminal_write("ps    - Show processes\n");
         terminal_write("mem   - Show memory\n");
         terminal_write("run   - Create process\n");
+        terminal_write("wait  - Put process 0 to sleep for 500 ticks\n");
+        terminal_write("kill  - Terminate process 0\n");
+        terminal_write("ticks - Show timer ticks\n");
     }
     else if (command_equals("clear"))
     {
@@ -114,8 +143,20 @@ static void execute_command()
     }
     else if (command_equals("ps"))
     {
-        terminal_write("PID  STATE\n");
-        terminal_write("0    READY\n");
+        extern Process processes[10];
+        extern int process_count;
+        int process_index;
+
+        terminal_write("PID  STATE     NAME\n");
+        for (process_index = 0; process_index < process_count; process_index++)
+        {
+            write_decimal(processes[process_index].pid);
+            terminal_write("    ");
+            terminal_write(process_state_name(processes[process_index].state));
+            terminal_write("     ");
+            terminal_write(processes[process_index].name);
+            terminal_write("\n");
+        }
     }
     else if (command_equals("mem"))
     {
@@ -124,8 +165,27 @@ static void execute_command()
     }
     else if (command_equals("run"))
     {
-        create_process("test");
-        terminal_write("Process created\n");
+        create_process_with_entry("test", test_process);
+    }
+    else if (command_equals("wait"))
+    {
+        if (process_wait(0, 500) == 0)
+            terminal_write("Process 0 waiting for 500 ticks\n");
+        else
+            terminal_write("Process 0 unavailable\n");
+    }
+    else if (command_equals("kill"))
+    {
+        if (process_terminate(0) == 0)
+            terminal_write("Process 0 terminated\n");
+        else
+            terminal_write("Process 0 unavailable\n");
+    }
+    else if (command_equals("ticks"))
+    {
+        terminal_write("Ticks: ");
+        write_decimal(timer_ticks());
+        terminal_write("\n");
     }
     else if (command_length > 0)
     {
@@ -143,6 +203,7 @@ void shell_start()
     terminal_write("================\n");
     terminal_write("Type help for commands\n");
     terminal_write("> ");
+    enable_interrupts();
 
     while (1)
     {
