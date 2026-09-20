@@ -2,6 +2,27 @@
 
 A simple educational 32-bit mini-kernel developed in **C and x86 Assembly**. The project demonstrates basic operating-system concepts such as booting, terminal output, memory management, paging, processes, scheduling, interrupts, and a basic shell.
 
+## Current openSUSE Tumbleweed Build
+
+Install the required tools:
+
+```bash
+sudo zypper refresh
+sudo zypper install gcc gcc-32bit glibc-devel-32bit binutils nasm grub2 grub2-i386-pc xorriso qemu-x86 make git mtools
+```
+
+Build and run from the repository directory:
+
+```bash
+make clean
+make iso
+make run
+```
+
+The Makefile uses `grub2-mkrescue`, which is the openSUSE command name. `mtools` is required by `grub2-mkrescue`. Always regenerate `mini-kernel.iso` after changing kernel code or the linker script.
+
+The linker script places the Multiboot header at the beginning of the kernel image. If GRUB reports `no multiboot header found`, rebuild with `make clean` before creating the ISO.
+
 ## 1. Project Architecture
 
 ```text
@@ -104,7 +125,7 @@ Check installations:
 gcc --version
 nasm --version
 ld --version
-grub-mkrescue --version
+grub2-mkrescue --version
 qemu-system-i386 --version
 git --version
 ```
@@ -368,7 +389,7 @@ Ctrl + X
 Create ISO:
 
 ```bash
-grub-mkrescue -o mini-kernel.iso iso
+grub2-mkrescue -o mini-kernel.iso iso
 ```
 
 Check:
@@ -458,7 +479,7 @@ menuentry "Mini Kernel" {
 }
 EOF
 
-grub-mkrescue -o mini-kernel.iso iso
+grub2-mkrescue -o mini-kernel.iso iso
 ```
 
 Run:
@@ -471,7 +492,7 @@ qemu-system-i386 -cdrom mini-kernel.iso
 
 # 15. Using the Shell
 
-After the full shell is implemented, sample commands are:
+The current shell supports:
 
 ```text
 help
@@ -479,6 +500,9 @@ ps
 mem
 run
 clear
+wait
+ticks
+kill
 ```
 
 ### `help`
@@ -492,15 +516,18 @@ clear - Clear screen
 ps    - Show processes
 mem   - Show memory
 run   - Create process
+wait  - Put process 0 to sleep for 500 ticks
+ticks - Show timer ticks
+kill  - Terminate process 0
 ```
 
 ### `ps`
 
-Displays process information:
+Displays live process information:
 
 ```text
-PID  STATE
-0    READY
+PID  STATE     NAME
+0    RUNNING   test
 ```
 
 ### `mem`
@@ -519,6 +546,36 @@ Creates a process:
 ```text
 Process created
 ```
+
+The test process has its own kernel stack and remains runnable. Timer IRQ0 performs kernel-mode context switches between the shell and process. A process can be `READY`, `RUNNING`, `WAITING`, or `TERMINATED`.
+
+### `wait`
+
+Places process 0 in `WAITING` for 500 timer ticks (approximately five seconds at 100 Hz):
+
+```text
+Process 0 waiting for 500 ticks
+```
+
+The timer wakes it by changing its state back to `READY`.
+
+### `ticks`
+
+Displays the PIT timer tick counter:
+
+```text
+Ticks: 1234
+```
+
+### `kill`
+
+Explicitly terminates process 0:
+
+```text
+Process 0 terminated
+```
+
+Terminated process slots can be reused by a later `run` command.
 
 ### `clear`
 
@@ -646,67 +703,16 @@ problem you encountered.
 
 # 19. Makefile
 
-Once everything works manually, you can simplify the build using a `Makefile`.
-
-Create:
-
-```bash
-nano Makefile
-```
-
-Add:
-
-```makefile
-all:
-	nasm -f elf32 boot/boot.asm -o boot.o
-	gcc -m32 -ffreestanding -c kernel/kernel.c -o kernel.o
-	gcc -m32 -ffreestanding -c kernel/terminal.c -o terminal.o
-	gcc -m32 -ffreestanding -c kernel/interrupts.c -o interrupts.o
-	gcc -m32 -ffreestanding -c kernel/memory.c -o memory.o
-	gcc -m32 -ffreestanding -c kernel/paging.c -o paging.o
-	gcc -m32 -ffreestanding -c kernel/process.c -o process.o
-	gcc -m32 -ffreestanding -c kernel/scheduler.c -o scheduler.o
-	gcc -m32 -ffreestanding -c shell/shell.c -o shell.o
-	ld -m elf_i386 -T linker.ld -o kernel.bin boot.o kernel.o terminal.o interrupts.o memory.o paging.o process.o scheduler.o shell.o
-
-iso:
-	rm -rf iso
-	mkdir -p iso/boot/grub
-	cp kernel.bin iso/boot/kernel.bin
-	printf 'menuentry "Mini Kernel" {\n\tmultiboot /boot/kernel.bin\n\tboot\n}\n' > iso/boot/grub/grub.cfg
-	grub-mkrescue -o mini-kernel.iso iso
-
-run:
-	qemu-system-i386 -cdrom mini-kernel.iso
-
-clean:
-	rm -f *.o kernel.bin mini-kernel.iso
-	rm -rf iso
-```
-
-Then building becomes:
-
-```bash
-make
-```
-
-Create ISO:
-
-```bash
-make iso
-```
-
-Run:
-
-```bash
-make run
-```
-
-Clean:
+The repository already includes an openSUSE-compatible `Makefile`. Use:
 
 ```bash
 make clean
+make iso
+make run
 ```
+
+The Makefile assembles `boot/boot.asm` and `boot/interrupts.asm`, compiles the 32-bit freestanding C sources with kernel-safe flags, links with `linker.ld`, creates the GRUB ISO with `grub2-mkrescue`, and launches QEMU.
+
 
 ---
 
@@ -717,7 +723,6 @@ Every time you change code:
 ```bash
 cd ~/mini-kernel
 make clean
-make
 make iso
 make run
 ```
@@ -744,17 +749,17 @@ git push
 | ---------------- | -------------------- |
 | Bootloader       | ✅                   |
 | GRUB boot        | ✅                   |
-| VGA terminal     | ✅                   |
-| Interrupt module | 🟡 Basic/stub        |
+| VGA terminal     | ✅ Scrolling/cursor  |
+| Interrupt module | ✅ IDT/PIC/IRQ1      |
 | Memory manager   | 🟡 Basic             |
 | Paging           | 🟡 Basic             |
-| Process manager  | 🟡 Basic             |
-| Scheduler        | 🟡 Basic round-robin |
-| Keyboard input   | ✅ Polling           |
-| Shell            | 🟡 Basic             |
+| Process manager  | 🟡 Kernel-mode       |
+| Scheduler        | 🟡 Timer-driven      |
+| Keyboard input   | ✅ IRQ1 buffered     |
+| Shell            | 🟡 Basic commands    |
 | System calls     | ⏳                   |
-| Real IDT         | ⏳                   |
-| Timer interrupt  | ⏳                   |
+| Real IDT         | ✅ Basic handlers    |
+| Timer interrupt  | ✅ PIT IRQ0 at 100 Hz|
 | User mode        | ⏳                   |
 
-**Important:** your current `interrupts.c` is only an initialization placeholder, and the current scheduler does not yet run concurrently with the shell. Those should be treated as future implementation stages rather than claiming that the kernel already has full hardware interrupt-driven process scheduling.
+**Current limitations:** process scheduling currently runs in kernel mode only. Processes have private kernel stacks and timer-driven switching, but there are no user-mode address spaces or system calls yet. Exception diagnostics are basic, paging is not enabled from the main boot path, and `WAITING`/`TERMINATED` lifecycle behavior is intended for education and testing rather than production use.
