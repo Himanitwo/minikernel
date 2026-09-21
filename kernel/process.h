@@ -2,7 +2,6 @@
 #define PROCESS_H
 
 #define MAX_PROCESSES 10
-#define PROCESS_STACK_SIZE 4096
 
 typedef enum
 {
@@ -15,22 +14,50 @@ typedef enum
 typedef struct
 {
     int pid;
+
     ProcessState state;
-    char name[20];
+
+    char name[32];
+
     void (*entry)(void);
-    unsigned int stack_top;
+
     unsigned int stack_pointer;
-    int started;
+    unsigned int stack_top;
+
     unsigned int wake_tick;
+
+    int started;
+
 } Process;
 
-void process_initialize();
-int create_process(char *name);
-int create_process_with_entry(char *name, void (*entry)(void));
+
+extern Process processes[MAX_PROCESSES];
+
+
+void process_initialize(void);
+
+int create_process_with_pid(
+    int pid,
+    char *name,
+    void (*entry)(void)
+);
+
+int create_process_with_entry(
+    char *name,
+    void (*entry)(void)
+);
+
 Process *process_get(int pid);
-void process_exit_current();
+
+void process_exit_current(void);
+
 int process_terminate(int pid);
-int process_wait(int pid, unsigned int duration);
-void process_yield_current();
+
+int process_wait(
+    int pid,
+    unsigned int ticks
+);
+
+void process_yield_current(void);
 
 #endif

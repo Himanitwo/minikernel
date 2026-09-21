@@ -1,59 +1,140 @@
 #include "shell.h"
+
 #include "../kernel/terminal.h"
-#include "../kernel/process.h"
 #include "../kernel/interrupts.h"
-#include "../kernel/scheduler.h"
+#include "../kernel/process.h"
+#include "../kernel/memory.h"
 
 static char command[50];
+
 static int command_length = 0;
 
+
+/*
+ * Test process.
+ */
 static void test_process()
 {
-    for (;;)
-        __asm__ volatile("hlt");
-}
+    volatile unsigned int counter = 0;
 
-static const char *process_state_name(ProcessState state)
-{
-    switch (state)
+    while (1)
     {
-        case READY: return "READY";
-        case RUNNING: return "RUNNING";
-        case WAITING: return "WAITING";
-        case TERMINATED: return "TERMINATED";
-        default: return "UNKNOWN";
+        counter++;
+
+        /*
+         * Prevent this loop from
+         * being optimized away.
+         */
+        if (counter == 0xFFFFFFFF)
+            counter = 0;
     }
 }
 
-static void write_decimal(int value)
+
+/*
+ * Convert process state
+ * into printable text.
+ */
+static const char *
+process_state_name(
+    ProcessState state)
+{
+    switch (state)
+    {
+        case READY:
+            return "READY";
+
+        case RUNNING:
+            return "RUNNING";
+
+        case WAITING:
+            return "WAITING";
+
+        case TERMINATED:
+            return "TERMINATED";
+
+        default:
+            return "UNKNOWN";
+    }
+}
+
+
+/*
+ * Print decimal integer.
+ */
+static void write_decimal(
+    int value)
 {
     char digits[12];
+
     int length = 0;
 
     if (value == 0)
     {
         terminal_putchar('0');
+
         return;
     }
 
     if (value < 0)
     {
         terminal_putchar('-');
+
         value = -value;
     }
 
     while (value > 0)
     {
-        digits[length] = '0' + (value % 10);
+        digits[length++] =
+            '0' + (value % 10);
+
         value /= 10;
-        length++;
     }
 
     while (length > 0)
-        terminal_putchar(digits[--length]);
+    {
+        terminal_putchar(
+            digits[--length]
+        );
+    }
 }
 
-static char scancode_to_ascii(unsigned char scancode)
+
+/*
+ * Print hexadecimal.
+ */
+static void write_hex(
+    unsigned int value)
+{
+    const char *hex =
+        "0123456789ABCDEF";
+
+    int shift;
+
+    terminal_write("0x");
+
+    for (
+        shift = 28;
+        shift >= 0;
+        shift -= 4
+    )
+    {
+        terminal_putchar(
+            hex[
+                (value >> shift) & 0xF
+            ]
+        );
+    }
+}
+
+
+/*
+ * Keyboard scancode
+ * to ASCII.
+ */
+static char
+scancode_to_ascii(
+    unsigned char scancode)
 {
     switch (scancode)
     {
@@ -97,20 +178,30 @@ static char scancode_to_ascii(unsigned char scancode)
         case 0x31: return 'n';
         case 0x32: return 'm';
 
-        case 0x39: return ' ';
+        case 0x39:
+            return ' ';
 
         default:
             return 0;
     }
 }
 
-static int command_equals(const char *a)
+
+/*
+ * Compare strings.
+ */
+static int string_equals(
+    const char *a,
+    const char *b)
 {
     int i = 0;
 
-    while (a[i] != '\0' || command[i] != '\0')
+    while (
+        a[i] != '\0' ||
+        b[i] != '\0'
+    )
     {
-        if (a[i] != command[i])
+        if (a[i] != b[i])
             return 0;
 
         i++;
@@ -119,77 +210,586 @@ static int command_equals(const char *a)
     return 1;
 }
 
+
+/*
+ * Convert argument into PID.
+ */
+static int parse_pid(
+    const char *text)
+{
+    int value = 0;
+
+    int i = 0;
+
+    if (text[0] == '\0')
+        return -1;
+
+    while (text[i] != '\0')
+    {
+        if (
+            text[i] < '0' ||
+            text[i] > '9'
+        )
+        {
+            return -1;
+        }
+
+        value =
+            value * 10 +
+            (text[i] - '0');
+
+        i++;
+    }
+
+    if (
+        value < 0 ||
+        value >= MAX_PROCESSES
+    )
+    {
+        return -1;
+    }
+
+    return value;
+}
+
+
+/*
+ * Split command:
+ *
+ * run 3
+ *
+ * into:
+ *
+ * name = run
+ * arg  = 3
+ */
+static void parse_command(
+    char *name,
+    char *argument)
+{
+    int i = 0;
+
+    int j = 0;
+
+    /*
+     * Skip spaces.
+     */
+    while (
+        command[i] == ' '
+    )
+    {
+        i++;
+    }
+
+    /*
+     * Read command.
+     */
+    while (
+        command[i] != '\0' &&
+        command[i] != ' '
+    )
+    {
+        name[j++] =
+            command[i++];
+    }
+
+    name[j] = '\0';
+
+    /*
+     * Skip spaces.
+     */
+    while (
+        command[i] == ' '
+    )
+    {
+        i++;
+    }
+
+    /*
+     * Read argument.
+     */
+    j = 0;
+
+    while (
+        command[i] != '\0' &&
+        command[i] != ' '
+    )
+    {
+        argument[j++] =
+            command[i++];
+    }
+
+    argument[j] = '\0';
+}
+
+
+/*
+ * Execute shell command.
+ */
 static void execute_command()
 {
-    command[command_length] = '\0';
+    char command_name[20];
+
+    char argument[20];
+
+    int pid;
+
+    int i;
+
+    command[
+        command_length
+    ] = '\0';
 
     terminal_write("\n");
 
-    if (command_equals("help"))
+    parse_command(
+        command_name,
+        argument
+    );
+
+
+    /*
+     * HELP
+     */
+    if (
+        string_equals(
+            command_name,
+            "help"
+        )
+    )
     {
-        terminal_write("Available commands:\n");
-        terminal_write("help  - Show commands\n");
-        terminal_write("clear - Clear screen\n");
-        terminal_write("ps    - Show processes\n");
-        terminal_write("mem   - Show memory\n");
-        terminal_write("run   - Create process\n");
-        terminal_write("wait  - Put process 0 to sleep for 500 ticks\n");
-        terminal_write("kill  - Terminate process 0\n");
-        terminal_write("ticks - Show timer ticks\n");
+        terminal_write(
+            "Available commands:\n"
+        );
+
+        terminal_write(
+            "help       - Show commands\n"
+        );
+
+        terminal_write(
+            "clear      - Clear screen\n"
+        );
+
+        terminal_write(
+            "ps         - Show processes\n"
+        );
+
+        terminal_write(
+            "mem        - Show memory\n"
+        );
+
+        terminal_write(
+            "info       - Kernel information\n"
+        );
+
+        terminal_write(
+            "run <pid>  - Create process\n"
+        );
+
+        terminal_write(
+            "wait <pid> - Wait 500 ticks\n"
+        );
+
+        terminal_write(
+            "kill <pid> - Terminate process\n"
+        );
+
+        terminal_write(
+            "ticks      - Show timer ticks\n"
+        );
     }
-    else if (command_equals("clear"))
+
+
+    /*
+     * CLEAR
+     */
+    else if (
+        string_equals(
+            command_name,
+            "clear"
+        )
+    )
     {
         terminal_initialize();
     }
-    else if (command_equals("ps"))
-    {
-        extern Process processes[10];
-        extern int process_count;
-        int process_index;
 
-        terminal_write("PID  STATE     NAME\n");
-        for (process_index = 0; process_index < process_count; process_index++)
+
+    /*
+     * PS
+     */
+    else if (
+        string_equals(
+            command_name,
+            "ps"
+        )
+    )
+    {
+        terminal_write(
+            "PID  STATE       NAME\n"
+        );
+
+        for (
+            i = 0;
+            i < MAX_PROCESSES;
+            i++
+        )
         {
-            write_decimal(processes[process_index].pid);
-            terminal_write("    ");
-            terminal_write(process_state_name(processes[process_index].state));
-            terminal_write("     ");
-            terminal_write(processes[process_index].name);
-            terminal_write("\n");
+            if (
+                processes[i].state !=
+                TERMINATED
+            )
+            {
+                write_decimal(
+                    processes[i].pid
+                );
+
+                terminal_write(
+                    "    "
+                );
+
+                terminal_write(
+                    process_state_name(
+                        processes[i].state
+                    )
+                );
+
+                terminal_write(
+                    "      "
+                );
+
+                terminal_write(
+                    processes[i].name
+                );
+
+                terminal_write(
+                    "\n"
+                );
+            }
         }
     }
-    else if (command_equals("mem"))
+
+
+    /*
+     * MEMORY
+     */
+    else if (
+        string_equals(
+            command_name,
+            "mem"
+        )
+    )
     {
-        terminal_write("Memory Manager\n");
-        terminal_write("Heap Start: 0x100000\n");
+        terminal_write(
+            "Memory Manager\n"
+        );
+
+        terminal_write(
+            "Heap Start: "
+        );
+
+        write_hex(
+            0x00500000
+        );
+
+        terminal_write(
+            "\n"
+        );
+
+        terminal_write(
+            "Heap Limit: "
+        );
+
+        write_hex(
+            0x00F00000
+        );
+
+        terminal_write(
+            "\n"
+        );
+
+        terminal_write(
+            "Used: "
+        );
+
+        write_decimal(
+            memory_used()
+        );
+
+        terminal_write(
+            " bytes\n"
+        );
+
+        terminal_write(
+            "Free: "
+        );
+
+        write_decimal(
+            memory_free()
+        );
+
+        terminal_write(
+            " bytes\n"
+        );
     }
-    else if (command_equals("run"))
+
+
+    /*
+     * INFO
+     */
+    else if (
+        string_equals(
+            command_name,
+            "info"
+        )
+    )
     {
-        create_process_with_entry("test", test_process);
+        terminal_write(
+            "MINI KERNEL INFORMATION\n"
+        );
+
+        terminal_write(
+            "Architecture: x86 32-bit\n"
+        );
+
+        terminal_write(
+            "Bootloader: GRUB Multiboot\n"
+        );
+
+        terminal_write(
+            "GDT: Enabled\n"
+        );
+
+        terminal_write(
+            "IDT/PIC: Enabled\n"
+        );
+
+        terminal_write(
+            "Timer: PIT 100 Hz\n"
+        );
+
+        terminal_write(
+            "Keyboard: PS/2 IRQ1\n"
+        );
+
+        terminal_write(
+            "Processes: 10 maximum\n"
+        );
+
+        terminal_write(
+            "Scheduler: Round Robin\n"
+        );
     }
-    else if (command_equals("wait"))
+
+
+    /*
+     * RUN PID
+     *
+     * Example:
+     *
+     * run 1
+     */
+    else if (
+        string_equals(
+            command_name,
+            "run"
+        )
+    )
     {
-        if (process_wait(0, 500) == 0)
-            terminal_write("Process 0 waiting for 500 ticks\n");
+        pid =
+            parse_pid(argument);
+
+        if (pid < 0)
+        {
+            terminal_write(
+                "Usage: run <pid>\n"
+            );
+        }
+
+        else if (
+            processes[pid].state !=
+            TERMINATED
+        )
+        {
+            terminal_write(
+                "PID already in use\n"
+            );
+        }
+
+        else if (
+            create_process_with_pid(
+                pid,
+                "process",
+                test_process
+            ) < 0
+        )
+        {
+            terminal_write(
+                "Unable to create process\n"
+            );
+        }
+
         else
-            terminal_write("Process 0 unavailable\n");
+        {
+            terminal_write(
+                "Process "
+            );
+
+            write_decimal(pid);
+
+            terminal_write(
+                " created\n"
+            );
+        }
     }
-    else if (command_equals("kill"))
+
+
+    /*
+     * WAIT PID
+     *
+     * Example:
+     *
+     * wait 1
+     */
+    else if (
+        string_equals(
+            command_name,
+            "wait"
+        )
+    )
     {
-        if (process_terminate(0) == 0)
-            terminal_write("Process 0 terminated\n");
+        pid =
+            parse_pid(argument);
+
+        if (pid < 0)
+        {
+            terminal_write(
+                "Usage: wait <pid>\n"
+            );
+        }
+
+        else if (
+            process_wait(
+                pid,
+                500
+            ) == 0
+        )
+        {
+            terminal_write(
+                "Process "
+            );
+
+            write_decimal(pid);
+
+            terminal_write(
+                " waiting for 500 ticks\n"
+            );
+        }
+
         else
-            terminal_write("Process 0 unavailable\n");
+        {
+            terminal_write(
+                "Process "
+            );
+
+            write_decimal(pid);
+
+            terminal_write(
+                " unavailable\n"
+            );
+        }
     }
-    else if (command_equals("ticks"))
+
+
+    /*
+     * KILL PID
+     *
+     * Example:
+     *
+     * kill 1
+     */
+    else if (
+        string_equals(
+            command_name,
+            "kill"
+        )
+    )
     {
-        terminal_write("Ticks: ");
-        write_decimal(timer_ticks());
-        terminal_write("\n");
+        pid =
+            parse_pid(argument);
+
+        if (pid < 0)
+        {
+            terminal_write(
+                "Usage: kill <pid>\n"
+            );
+        }
+
+        else if (
+            process_terminate(pid) == 0
+        )
+        {
+            terminal_write(
+                "Process "
+            );
+
+            write_decimal(pid);
+
+            terminal_write(
+                " terminated\n"
+            );
+        }
+
+        else
+        {
+            terminal_write(
+                "Process "
+            );
+
+            write_decimal(pid);
+
+            terminal_write(
+                " unavailable\n"
+            );
+        }
     }
-    else if (command_length > 0)
+
+
+    /*
+     * TICKS
+     */
+    else if (
+        string_equals(
+            command_name,
+            "ticks"
+        )
+    )
     {
-        terminal_write("Unknown command\n");
+        extern unsigned int timer_ticks();
+
+        terminal_write(
+            "Ticks: "
+        );
+
+        write_decimal(
+            (int)timer_ticks()
+        );
+
+        terminal_write(
+            "\n"
+        );
+    }
+
+
+    /*
+     * UNKNOWN COMMAND
+     */
+    else if (
+        command_length > 0
+    )
+    {
+        terminal_write(
+            "Unknown command\n"
+        );
     }
 
     terminal_write("> ");
@@ -197,50 +797,91 @@ static void execute_command()
     command_length = 0;
 }
 
+
+/*
+ * Start shell.
+ */
 void shell_start()
 {
-    terminal_write("\nMini Kernel Shell\n");
-    terminal_write("================\n");
-    terminal_write("Type help for commands\n");
-    terminal_write("> ");
+    terminal_write(
+        "\nMini Kernel Shell\n"
+    );
+
+    terminal_write(
+        "================\n"
+    );
+
+    terminal_write(
+        "Type help for commands\n"
+    );
+
+    terminal_write(
+        "> "
+    );
+
     enable_interrupts();
 
     while (1)
     {
-        unsigned char scancode = keyboard_read();
+        unsigned char scancode =
+            keyboard_read();
 
-        /* Ignore key release */
+        /*
+         * Ignore key-release codes.
+         */
         if (scancode & 0x80)
             continue;
 
-        /* ENTER */
+
+        /*
+         * ENTER
+         */
         if (scancode == 0x1C)
         {
             execute_command();
+
             continue;
         }
 
-        /* BACKSPACE */
+
+        /*
+         * BACKSPACE
+         */
         if (scancode == 0x0E)
         {
             if (command_length > 0)
             {
                 command_length--;
 
-                terminal_putchar('\b');
+                terminal_putchar(
+                    '\b'
+                );
             }
 
             continue;
         }
 
-        char c = scancode_to_ascii(scancode);
 
-        if (c != 0 && command_length < 49)
+        /*
+         * Normal character.
+         */
         {
-            command[command_length] = c;
-            command_length++;
+            char c =
+                scancode_to_ascii(
+                    scancode
+                );
 
-            terminal_putchar(c);
+            if (
+                c != 0 &&
+                command_length < 49
+            )
+            {
+                command[
+                    command_length++
+                ] = c;
+
+                terminal_putchar(c);
+            }
         }
     }
 }

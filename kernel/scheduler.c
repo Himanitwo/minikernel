@@ -3,108 +3,197 @@
 #include "terminal.h"
 
 extern Process processes[MAX_PROCESSES];
+
 extern int process_count;
 
-int current_process = -1;
-int scheduler_started = 0;
-unsigned int idle_stack = 0;
+static int current_process = -1;
 
+static int last_selected = -1;
+
+static int scheduler_started = 0;
+
+static unsigned int idle_stack = 0;
+
+
+/*
+ * Initialize scheduler.
+ */
 void scheduler_initialize()
 {
-    terminal_write("Scheduler initialized\n");
+    current_process = -1;
+
+    last_selected = -1;
+
+    scheduler_started = 0;
+
+    idle_stack = 0;
+
+    terminal_write(
+        "Scheduler initialized\n"
+    );
 }
 
-void scheduler_on_tick(unsigned int tick)
-{
-    int process_index;
 
-    for (process_index = 0; process_index < process_count; process_index++)
+/*
+ * Wake processes whose
+ * wait period has expired.
+ */
+void scheduler_on_tick(
+    unsigned int tick)
+{
+    int i;
+
+    for (
+        i = 0;
+        i < process_count;
+        i++
+    )
     {
-        if (processes[process_index].state == WAITING &&
-            processes[process_index].wake_tick <= tick)
+        if (
+            processes[i].state ==
+            WAITING
+            &&
+            processes[i].wake_tick <= tick
+        )
         {
-            processes[process_index].state = READY;
+            processes[i].state =
+                READY;
         }
     }
 }
 
-void scheduler_run()
+
+/*
+ * Find next READY process.
+ */
+static int find_next_process()
 {
-    int next_process;
+    int offset;
 
-    if (process_count == 0)
-        return;
-
-    if (current_process >= 0)
-        processes[current_process].state = READY;
-
-    for (next_process = 1; next_process <= process_count; next_process++)
-    {
-        int candidate = (current_process + next_process + process_count) %
-            process_count;
-
-        if (processes[candidate].state == READY)
-        {
-            current_process = candidate;
-            processes[current_process].state = RUNNING;
-            return;
-        }
-    }
-
-    processes[current_process].state = RUNNING;
-}
-
-int scheduler_current_pid()
-{
-    if (current_process < 0 || process_count == 0)
-        return -1;
-
-    return processes[current_process].pid;
-}
-
-unsigned int scheduler_switch(unsigned int current_stack)
-{
-    int next_process;
     int candidate;
 
     if (process_count == 0)
-        return current_stack;
+        return -1;
 
-    if (scheduler_started && current_process >= 0)
-        processes[current_process].stack_pointer = current_stack;
-    else
+    for (
+        offset = 1;
+        offset <= process_count;
+        offset++
+    )
     {
-        scheduler_started = 1;
-        idle_stack = current_stack;
-    }
+        candidate =
+            (last_selected + offset)
+            % process_count;
 
-    if (current_process >= 0 &&
-        processes[current_process].state == RUNNING)
-    {
-        processes[current_process].state = READY;
-        current_process = -1;
-        return idle_stack;
-    }
-
-    for (next_process = 1; next_process <= process_count; next_process++)
-    {
-        candidate = (current_process + next_process + process_count) %
-            process_count;
-
-        if (processes[candidate].state == READY &&
-            processes[candidate].entry != 0)
+        if (
+            processes[candidate].state ==
+            READY
+            &&
+            processes[candidate].entry != 0
+        )
         {
-            current_process = candidate;
-            processes[current_process].state = RUNNING;
-            processes[current_process].started = 1;
-            return processes[current_process].stack_pointer;
+            return candidate;
         }
     }
 
-    return current_stack;
+    return -1;
 }
 
+
+/*
+ * Context switch.
+ */
+unsigned int scheduler_switch(
+    unsigned int current_stack)
+{
+    int next;
+
+    /*
+     * First scheduler activation.
+     */
+    if (!scheduler_started)
+    {
+        scheduler_started = 1;
+
+        idle_stack =
+            current_stack;
+    }
+
+    /*
+     * Save current process.
+     */
+    if (current_process >= 0)
+    {
+        processes[current_process]
+            .stack_pointer =
+            current_stack;
+
+        if (
+            processes[current_process]
+                .state == RUNNING
+        )
+        {
+            processes[current_process]
+                .state = READY;
+        }
+
+        last_selected =
+            current_process;
+
+        current_process = -1;
+
+        return idle_stack;
+    }
+
+    /*
+     * Find next process.
+     */
+    next =
+        find_next_process();
+
+    if (next < 0)
+        return current_stack;
+
+    current_process =
+        next;
+
+    processes[current_process]
+        .state =
+        RUNNING;
+
+    processes[current_process]
+        .started =
+        1;
+
+    return processes[current_process]
+        .stack_pointer;
+}
+
+
+/*
+ * Return current PID.
+ */
+int scheduler_current_pid()
+{
+    return current_process;
+}
+
+
+/*
+ * Tell scheduler current
+ * process has exited.
+ */
 void scheduler_process_exited()
 {
-    current_process = -1;
+    if (current_process >= 0)
+    {
+        processes[current_process]
+            .state =
+            TERMINATED;
+
+        last_selected =
+            current_process;
+
+        current_process = -1;
+    }
 }
