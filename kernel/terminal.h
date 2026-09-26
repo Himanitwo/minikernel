@@ -4,5 +4,6 @@
 void terminal_initialize();
 void terminal_write(const char *text);
 void terminal_putchar(char c);
+void terminal_set_cursor_visible(int visible);
 
 #endif

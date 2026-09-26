@@ -29,6 +29,12 @@ static void terminal_update_cursor()
     outb(0x3D5, (position >> 8) & 0xFF);
 }
 
+void terminal_set_cursor_visible(int visible)
+{
+    outb(0x3D4, 0x0A);
+    outb(0x3D5, visible ? 0x0E : 0x20);
+}
+
 static void terminal_scroll()
 {
     int current_row;

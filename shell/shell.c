@@ -4,6 +4,8 @@
 #include "../kernel/interrupts.h"
 #include "../kernel/process.h"
 #include "../kernel/memory.h"
+#include "../kernel/game.h"
+#include "../kernel/cricket.h"
 
 static char command[50];
 
@@ -397,6 +399,49 @@ static void execute_command()
         terminal_write(
             "ticks      - Show timer ticks\n"
         );
+
+        terminal_write(
+            "snake      - Play Snake\n"
+        );
+
+        terminal_write(
+            "tetris     - Play Tetris\n"
+        );
+
+        terminal_write(
+            "cricket    - Play cricket batting challenge\n"
+        );
+    }
+
+    /*
+     * SNAKE
+     */
+    else if (
+        string_equals(
+            command_name,
+            "snake"
+        )
+    )
+    {
+        game_snake_start();
+    }
+    else if (
+        string_equals(
+            command_name,
+            "tetris"
+        )
+    )
+    {
+        game_tetris_start();
+    }
+    else if (
+        string_equals(
+            command_name,
+            "cricket"
+        )
+    )
+    {
+        game_cricket_start();
     }
 
 

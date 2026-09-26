@@ -19,9 +19,21 @@ make iso
 make run
 ```
 
-The Makefile uses `grub2-mkrescue`, which is the openSUSE command name. `mtools` is required by `grub2-mkrescue`. Always regenerate `mini-kernel.iso` after changing kernel code or the linker script.
+The Makefile automatically uses whichever GRUB ISO command is installed: `grub-mkrescue` or openSUSE's `grub2-mkrescue`. `mtools` is required by `grub2-mkrescue`. Always regenerate `mini-kernel.iso` after changing kernel code or the linker script.
 
 The linker script places the Multiboot header at the beginning of the kernel image. If GRUB reports `no multiboot header found`, rebuild with `make clean` before creating the ISO.
+
+## Snake
+
+Start the game by entering `snake` in the kernel shell. Steer with the arrow keys or WASD, press `P` to pause or resume, and press `Q` or Escape to return to the shell. Collect `*` to grow and increase your score; hitting a wall or yourself ends the round. Press Enter to restart after game over.
+
+## Cricket
+
+Run `cricket` from the shell for a 12-ball batting challenge. Each ball starts with a one-second setup period, then takes about two seconds to reach the batter. Use that setup time to read the delivery and choose your aim (A/Left or D/Right) and shot (W/Up to loft, S/Down to defend); you can still adjust during the delivery. Press Space to swing, preferably while the timing marker is in the green zone. A missed swing is always a safe dot ball. Lofting can score boundaries but carries more wicket risk; defending is safest. Press P to pause, Enter to start/restart, and Q or Escape to return to the shell.
+
+## Tetris
+
+Start Tetris with the `tetris` shell command. Use Left/Right or A/D to move, Up or W to rotate, Down or S to soft-drop, and Space to hard-drop. `P` pauses/resumes, while `Q` or Escape returns to the shell. Completed lines increase your score; every 10 lines raises the level and speeds up falling pieces. Press Enter to restart after game over.
 
 ## 1. Project Architecture
 

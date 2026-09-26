@@ -1,7 +1,7 @@
 CC = gcc
 LD = ld
 AS = nasm
-GRUB_MKRESCUE = grub-mkrescue
+GRUB_MKRESCUE ?= $(shell command -v grub-mkrescue 2>/dev/null || command -v grub2-mkrescue 2>/dev/null || printf grub-mkrescue)
 QEMU = qemu-system-i386
 
 CFLAGS = -m32 -ffreestanding -fno-pie \
@@ -19,6 +19,8 @@ OBJECTS = boot.o \
 	process.o \
 	scheduler.o \
 	gdt.o \
+	game.o \
+	cricket.o \
 	shell.o
 
 .PHONY: all iso run clean
@@ -46,6 +48,13 @@ kernel.o: kernel/kernel.c
 
 
 gdt.o: kernel/gdt.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+
+game.o: kernel/game.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+cricket.o: kernel/cricket.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 
@@ -78,6 +87,11 @@ shell.o: shell/shell.c
 
 
 iso: kernel.bin
+	@command -v "$(GRUB_MKRESCUE)" >/dev/null 2>&1 || { \
+		echo "Error: GRUB ISO tool not found. Install grub2-mkrescue or grub-mkrescue, or set GRUB_MKRESCUE."; \
+		exit 127; \
+	}
+
 	rm -rf iso
 	mkdir -p iso/boot/grub
 

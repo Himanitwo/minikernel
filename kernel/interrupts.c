@@ -219,3 +219,44 @@ unsigned char keyboard_read()
         __asm__ volatile("hlt");
     }
 }
+
+int keyboard_try_read()
+{
+    unsigned char scancode;
+    unsigned int flags;
+
+    __asm__ volatile (
+        "pushfl\n"
+        "popl %0\n"
+        "cli"
+        : "=r"(flags)
+        :
+        : "memory"
+    );
+
+    if (keyboard_read_position == keyboard_write_position)
+    {
+        __asm__ volatile (
+            "pushl %0\n"
+            "popfl"
+            :
+            : "r"(flags)
+            : "memory", "cc"
+        );
+        return -1;
+    }
+
+    scancode = keyboard_buffer[keyboard_read_position];
+    keyboard_read_position =
+        (keyboard_read_position + 1) & 127;
+
+    __asm__ volatile (
+        "pushl %0\n"
+        "popfl"
+        :
+        : "r"(flags)
+        : "memory", "cc"
+    );
+
+    return scancode;
+}
