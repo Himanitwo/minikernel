@@ -1,10 +1,22 @@
+#include <stdint.h>
+
 #include "interrupts.h"
 #include "terminal.h"
 #include "scheduler.h"
 
-typedef unsigned char uint8_t;
-typedef unsigned short uint16_t;
-typedef unsigned int uint32_t;
+#define IDT_ENTRIES 256
+
+#define PIC_MASTER 0x20
+#define PIC_SLAVE  0xA0
+
+#define PIC_MASTER_COMMAND 0x20
+#define PIC_MASTER_DATA    0x21
+#define PIC_SLAVE_COMMAND  0xA0
+#define PIC_SLAVE_DATA     0xA1
+
+#define PIC_EOI 0x20
+
+#define KEYBOARD_DATA 0x60
 
 typedef struct
 {
@@ -21,20 +33,16 @@ typedef struct
     uint32_t base;
 } __attribute__((packed)) idt_register_t;
 
-extern void isr_default();
-extern void exception_stub();
-extern void irq1_stub();
-extern void irq0_stub();
-extern void software_test_stub();
-
-static idt_entry_t idt[256];
+static idt_entry_t idt[IDT_ENTRIES];
 static idt_register_t idt_register;
-static volatile uint8_t keyboard_buffer[128];
-static volatile uint8_t keyboard_read_position;
-static volatile uint8_t keyboard_write_position;
-static volatile uint32_t ticks;
 
-static void outb(uint16_t port, uint8_t value)
+static volatile unsigned int tick_count = 0;
+
+static unsigned char keyboard_buffer[128];
+static volatile unsigned int keyboard_head = 0;
+static volatile unsigned int keyboard_tail = 0;
+
+static inline void outb(uint16_t port, uint8_t value)
 {
     __asm__ volatile (
         "outb %0, %1"
@@ -43,47 +51,7 @@ static void outb(uint16_t port, uint8_t value)
     );
 }
 
-static void io_wait()
-{
-    outb(0x80, 0);
-}
-
-static void idt_set_gate(uint8_t vector, uint32_t handler)
-{
-    idt[vector].offset_low = handler & 0xFFFF;
-    idt[vector].selector = 0x08;
-    idt[vector].zero = 0;
-    idt[vector].flags = 0x8E;
-    idt[vector].offset_high = (handler >> 16) & 0xFFFF;
-}
-
-static void pic_remap()
-{
-    outb(0x20, 0x11);
-    io_wait();
-    outb(0xA0, 0x11);
-    io_wait();
-    outb(0x21, 0x20);
-    io_wait();
-    outb(0xA1, 0x28);
-    io_wait();
-    outb(0x21, 0x04);
-    io_wait();
-    outb(0xA1, 0x02);
-    io_wait();
-    outb(0x21, 0x01);
-    io_wait();
-    outb(0xA1, 0x01);
-    io_wait();
-
-    /* Keep IRQ0 (timer) and IRQ1 (keyboard) enabled. */
-    outb(0x21, 0xFC);
-    io_wait();
-    outb(0xA1, 0xFF);
-    io_wait();
-}
-
-static uint8_t inb(uint16_t port)
+static inline uint8_t inb(uint16_t port)
 {
     uint8_t value;
 
@@ -96,126 +64,269 @@ static uint8_t inb(uint16_t port)
     return value;
 }
 
-void exception_handler()
+static void idt_set_gate(
+    int number,
+    uint32_t handler,
+    uint16_t selector,
+    uint8_t flags)
 {
-    disable_interrupts();
-    terminal_write("\nCPU exception\n");
-    terminal_write("Kernel halted\n");
+    idt[number].offset_low =
+        (uint16_t)(handler & 0xFFFF);
 
-    for (;;)
-        __asm__ volatile("hlt");
+    idt[number].offset_high =
+        (uint16_t)((handler >> 16) & 0xFFFF);
+
+    idt[number].selector = selector;
+    idt[number].zero = 0;
+    idt[number].flags = flags;
 }
 
-void interrupt_software_test_handler()
+/* IRQ 0-7 -> INT 0x20-0x27
+ * IRQ 8-15 -> INT 0x28-0x2F
+ */
+static void pic_remap(void)
 {
-    terminal_write("Software interrupt OK\n");
+    uint8_t master_mask;
+    uint8_t slave_mask;
+
+    master_mask = inb(PIC_MASTER_DATA);
+    slave_mask = inb(PIC_SLAVE_DATA);
+
+    /* Start initialization */
+    outb(PIC_MASTER_COMMAND, 0x11);
+    outb(PIC_SLAVE_COMMAND, 0x11);
+
+    /* Vector offsets */
+    outb(PIC_MASTER_DATA, 0x20);
+    outb(PIC_SLAVE_DATA, 0x28);
+
+    /* Tell master/slave wiring */
+    outb(PIC_MASTER_DATA, 0x04);
+    outb(PIC_SLAVE_DATA, 0x02);
+
+    /* 8086 mode */
+    outb(PIC_MASTER_DATA, 0x01);
+    outb(PIC_SLAVE_DATA, 0x01);
+
+    /*
+     * Enable:
+     * IRQ0 = timer
+     * IRQ1 = keyboard
+     *
+     * Keep everything else masked for now.
+     */
+    outb(PIC_MASTER_DATA, 0xFC);
+    outb(PIC_SLAVE_DATA, 0xEF);
+
+    (void)master_mask;
+    (void)slave_mask;
 }
 
-void interrupt_software_test()
+void interrupts_initialize(void)
 {
-    __asm__ volatile("int $0x80");
-}
+    int i;
 
-void keyboard_interrupt_handler()
-{
-    uint8_t scancode;
-    uint8_t next_position;
+    __asm__ volatile("cli");
 
-    scancode = inb(0x60);
-    next_position = (keyboard_write_position + 1) & 127;
-
-    if (next_position != keyboard_read_position)
+    for (i = 0; i < IDT_ENTRIES; i++)
     {
-        keyboard_buffer[keyboard_write_position] = scancode;
-        keyboard_write_position = next_position;
+        extern void isr_default(void);
+
+        idt_set_gate(
+            i,
+            (uint32_t)isr_default,
+            0x08,
+            0x8E
+        );
     }
 
-    outb(0x20, 0x20);
-}
+    extern void exception_stub(void);
+    extern void irq0_stub(void);
+    extern void irq1_stub(void);
+    extern void irq12_stub(void);
 
-void timer_interrupt_handler()
-{
-    ticks++;
-    scheduler_on_tick(ticks);
-    outb(0x20, 0x20);
-}
+    /*
+     * CPU exception handler.
+     */
+    idt_set_gate(
+        0x00,
+        (uint32_t)exception_stub,
+        0x08,
+        0x8E
+    );
 
-unsigned int timer_ticks()
-{
-    return ticks;
-}
+    /*
+     * Double fault.
+     */
+    idt_set_gate(
+        0x08,
+        (uint32_t)exception_stub,
+        0x08,
+        0x8E
+    );
 
-static void timer_initialize()
-{
-    uint16_t divisor = 11931;
+    /*
+     * Timer IRQ0 -> 0x20
+     */
+    idt_set_gate(
+        0x20,
+        (uint32_t)irq0_stub,
+        0x08,
+        0x8E
+    );
 
-    outb(0x43, 0x36);
-    io_wait();
-    outb(0x40, divisor & 0xFF);
-    io_wait();
-    outb(0x40, (divisor >> 8) & 0xFF);
-    io_wait();
-}
+    /*
+     * Keyboard IRQ1 -> 0x21
+     */
+    idt_set_gate(
+        0x21,
+        (uint32_t)irq1_stub,
+        0x08,
+        0x8E
+    );
 
-void interrupts_initialize()
-{
-    int vector;
+    /*
+     * Mouse IRQ12 -> 0x2C
+     * Kept masked for now.
+     */
+    idt_set_gate(
+        0x2C,
+        (uint32_t)irq12_stub,
+        0x08,
+        0x8E
+    );
 
-    keyboard_read_position = 0;
-    keyboard_write_position = 0;
-    ticks = 0;
+    idt_register.limit =
+        sizeof(idt) - 1;
 
-    for (vector = 0; vector < 256; vector++)
-        idt_set_gate(vector, (uint32_t)isr_default);
+    idt_register.base =
+        (uint32_t)&idt;
 
-    for (vector = 0; vector < 32; vector++)
-        idt_set_gate(vector, (uint32_t)exception_stub);
-
-    /* Accept IRQ1 on both the legacy PIC vector and the remapped vector. */
-    idt_set_gate(8, (uint32_t)irq0_stub);
-    idt_set_gate(32, (uint32_t)irq0_stub);
-    idt_set_gate(9, (uint32_t)irq1_stub);
-    idt_set_gate(33, (uint32_t)irq1_stub);
-    idt_set_gate(0x80, (uint32_t)software_test_stub);
-    idt_register.limit = sizeof(idt) - 1;
-    idt_register.base = (uint32_t)&idt;
+    __asm__ volatile(
+        "lidt %0"
+        :
+        : "m"(idt_register)
+    );
 
     pic_remap();
-    timer_initialize();
 
-    __asm__ volatile("lidt %0" : : "m"(idt_register));
-
-    terminal_write("Interrupt system initialized\n");
+    terminal_write("Interrupts initialized\n");
 }
 
-void enable_interrupts()
+/* ---------------- Interrupt control ---------------- */
+
+void enable_interrupts(void)
 {
     __asm__ volatile("sti");
 }
 
-void disable_interrupts()
+void disable_interrupts(void)
 {
     __asm__ volatile("cli");
 }
 
-unsigned char keyboard_read()
+/* ---------------- Timer ---------------- */
+
+void timer_interrupt_handler(void)
 {
-    unsigned char scancode;
+    tick_count++;
+
+    scheduler_on_tick(tick_count);
+
+    /* Send EOI to master PIC */
+    outb(PIC_MASTER_COMMAND, PIC_EOI);
+}
+
+unsigned int timer_ticks(void)
+{
+    return tick_count;
+}
+
+/* ---------------- Keyboard ---------------- */
+
+void keyboard_interrupt_handler(void)
+{
+    uint8_t scancode;
+
+    scancode = inb(KEYBOARD_DATA);
+
+    /*
+     * Only store key press codes.
+     */
+    if ((scancode & 0x80) == 0)
+    {
+        unsigned int next;
+
+        next = (keyboard_head + 1) % 128;
+
+        if (next != keyboard_tail)
+        {
+            keyboard_buffer[keyboard_head] = scancode;
+            keyboard_head = next;
+        }
+    }
+
+    outb(PIC_MASTER_COMMAND, PIC_EOI);
+}
+
+unsigned char keyboard_read(void)
+{
+    unsigned char value;
+
+    while (keyboard_head == keyboard_tail)
+    {
+        __asm__ volatile("hlt");
+    }
+
+    value = keyboard_buffer[keyboard_tail];
+
+    keyboard_tail =
+        (keyboard_tail + 1) % 128;
+
+    return value;
+}
+
+/* ---------------- Mouse ---------------- */
+
+// void mouse_interrupt_handler(void)
+// {
+//     /*
+//      * Mouse IRQ is currently masked.
+//      * Keep a safe handler for later.
+//      */
+//     outb(PIC_SLAVE_COMMAND, PIC_EOI);
+//     outb(PIC_MASTER_COMMAND, PIC_EOI);
+// }
+
+/* ---------------- Exceptions ---------------- */
+
+void exception_handler(void)
+{
+    terminal_write("\n*** CPU EXCEPTION ***\n");
+    terminal_write("Kernel halted.\n");
+
+    disable_interrupts();
 
     for (;;)
     {
-        disable_interrupts();
-
-        if (keyboard_read_position != keyboard_write_position)
-        {
-            scancode = keyboard_buffer[keyboard_read_position];
-            keyboard_read_position =
-                (keyboard_read_position + 1) & 127;
-            enable_interrupts();
-            return scancode;
-        }
-
-        enable_interrupts();
         __asm__ volatile("hlt");
     }
+}
+
+void page_fault_handler(void)
+{
+    terminal_write("\n*** PAGE FAULT ***\n");
+    terminal_write("Kernel halted.\n");
+
+    disable_interrupts();
+
+    for (;;)
+    {
+        __asm__ volatile("hlt");
+    }
+}
+
+void interrupt_software_test_handler(void)
+{
+    terminal_write("Software interrupt received\n");
 }

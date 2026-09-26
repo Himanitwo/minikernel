@@ -1,18 +1,18 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
-void scheduler_initialize();
-
-unsigned int scheduler_switch(
-    unsigned int current_stack
-);
+void scheduler_initialize(void);
 
 void scheduler_on_tick(
     unsigned int tick
 );
 
-int scheduler_current_pid();
+unsigned int scheduler_switch(
+    unsigned int current_stack
+);
 
-void scheduler_process_exited();
+int scheduler_current_pid(void);
+
+void scheduler_process_exited(void);
 
 #endif

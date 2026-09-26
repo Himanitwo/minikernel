@@ -50,9 +50,10 @@ void process_initialize(void)
         processes[i].started = 0;
     }
 
-    terminal_write("Process manager initialized\n");
+    terminal_write(
+        "Process manager initialized\n"
+    );
 }
-
 
 /*
  * Create a process at a specific PID.
@@ -109,9 +110,9 @@ int create_process_with_pid(
     processes[pid].stack_top =
         (uint32_t)&process_stacks[pid][PROCESS_STACK_SIZE];
 
-    processes[pid].stack_pointer =
-        processes[pid].stack_top -
-        (12 * sizeof(uint32_t));
+ processes[pid].stack_pointer =
+    processes[pid].stack_top -
+    (11 * sizeof(uint32_t));
 
     stack =
         (unsigned int *)processes[pid].stack_pointer;
@@ -181,9 +182,9 @@ int create_process_with_pid(
     /*
      * If the process function returns, RET will jump here.
      */
-    stack[11] =
-        (uint32_t)process_return_trampoline;
-
+    processes[pid].stack_pointer =
+    (uint32_t)&process_stacks[pid][PROCESS_STACK_SIZE]
+    - (11 * sizeof(uint32_t));
 
     process_count++;
 

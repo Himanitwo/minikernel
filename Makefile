@@ -1,104 +1,138 @@
+# ==========================================
+# Mini Operating System Kernel Makefile
+# ==========================================
+
 CC = gcc
 LD = ld
-AS = nasm
-GRUB_MKRESCUE = grub-mkrescue
-QEMU = qemu-system-i386
+ASM = nasm
 
 CFLAGS = -m32 -ffreestanding -fno-pie \
-	-fno-stack-protector -fno-builtin \
-	-fno-unwind-tables \
-	-fno-asynchronous-unwind-tables
+         -fno-stack-protector -fno-builtin \
+         -fno-unwind-tables \
+         -fno-asynchronous-unwind-tables \
+         -I. -Ikernel
 
-OBJECTS = boot.o \
-	interrupts_asm.o \
-	kernel.o \
-	terminal.o \
-	interrupts.o \
-	memory.o \
-	paging.o \
-	process.o \
-	scheduler.o \
-	gdt.o \
-	shell.o
+LDFLAGS = -m elf_i386 -T linker.ld
 
-.PHONY: all iso run clean
+KERNEL = kernel.bin
+ISO = mini-kernel.iso
 
-all: kernel.bin
+# ==========================================
+# Object Files
+# ==========================================
 
+OBJS = \
+    boot/boot.o \
+    boot/interrupts.o \
+    kernel/kernel.o \
+    kernel/gdt.o \
+    kernel/terminal.o \
+    kernel/memory.o \
+    kernel/paging.o \
+    kernel/interrupts.o \
+    kernel/mouse.o \
+    kernel/process.o \
+    kernel/scheduler.o \
+    kernel/display.o \
+    kernel/gui.o \
+    kernel/keyboard.o \
+    kernel/shell/shell.o
 
-kernel.bin: $(OBJECTS)
-	$(LD) -m elf_i386 \
-		-T linker.ld \
-		-o $@ \
-		$(OBJECTS)
+# ==========================================
+# Default Target
+# ==========================================
 
+all: $(KERNEL)
 
-boot.o: boot/boot.asm
-	$(AS) -f elf32 $< -o $@
+# ==========================================
+# Build Kernel
+# ==========================================
 
+$(KERNEL): $(OBJS)
+	$(LD) $(LDFLAGS) -o $(KERNEL) $(OBJS)
 
-interrupts_asm.o: boot/interrupts.asm
-	$(AS) -f elf32 $< -o $@
+# ==========================================
+# C Compilation
+# ==========================================
 
+kernel/kernel.o: kernel/kernel.c
+	$(CC) $(CFLAGS) -c kernel/kernel.c -o kernel/kernel.o
 
-kernel.o: kernel/kernel.c
-	$(CC) $(CFLAGS) -c $< -o $@
+kernel/gdt.o: kernel/gdt.c
+	$(CC) $(CFLAGS) -c kernel/gdt.c -o kernel/gdt.o
 
+kernel/terminal.o: kernel/terminal.c
+	$(CC) $(CFLAGS) -c kernel/terminal.c -o kernel/terminal.o
 
-gdt.o: kernel/gdt.c
-	$(CC) $(CFLAGS) -c $< -o $@
+kernel/memory.o: kernel/memory.c
+	$(CC) $(CFLAGS) -c kernel/memory.c -o kernel/memory.o
 
+kernel/paging.o: kernel/paging.c
+	$(CC) $(CFLAGS) -c kernel/paging.c -o kernel/paging.o
 
-terminal.o: kernel/terminal.c
-	$(CC) $(CFLAGS) -c $< -o $@
+kernel/interrupts.o: kernel/interrupts.c
+	$(CC) $(CFLAGS) -c kernel/interrupts.c -o kernel/interrupts.o
 
+kernel/mouse.o: kernel/mouse.c
+	$(CC) $(CFLAGS) -c kernel/mouse.c -o kernel/mouse.o
 
-interrupts.o: kernel/interrupts.c
-	$(CC) $(CFLAGS) -c $< -o $@
+kernel/process.o: kernel/process.c
+	$(CC) $(CFLAGS) -c kernel/process.c -o kernel/process.o
 
+kernel/scheduler.o: kernel/scheduler.c
+	$(CC) $(CFLAGS) -c kernel/scheduler.c -o kernel/scheduler.o
 
-memory.o: kernel/memory.c
-	$(CC) $(CFLAGS) -c $< -o $@
+kernel/display.o: kernel/display.c
+	$(CC) $(CFLAGS) -c kernel/display.c -o kernel/display.o
 
+kernel/gui.o: kernel/gui.c
+	$(CC) $(CFLAGS) -c kernel/gui.c -o kernel/gui.o
 
-paging.o: kernel/paging.c
-	$(CC) $(CFLAGS) -c $< -o $@
+kernel/keyboard.o: kernel/keyboard.c
+	$(CC) $(CFLAGS) -c kernel/keyboard.c -o kernel/keyboard.o
+kernel/shell/shell.o: kernel/shell/shell.c
+	$(CC) $(CFLAGS) -c kernel/shell/shell.c -o kernel/shell/shell.o
 
+# ==========================================
+# Assembly
+# ==========================================
 
-process.o: kernel/process.c
-	$(CC) $(CFLAGS) -c $< -o $@
+boot/boot.o: boot/boot.asm
+	$(ASM) -f elf32 boot/boot.asm -o boot/boot.o
 
+boot/interrupts.o: boot/interrupts.asm
+	$(ASM) -f elf32 boot/interrupts.asm -o boot/interrupts.o
 
-scheduler.o: kernel/scheduler.c
-	$(CC) $(CFLAGS) -c $< -o $@
-
-
-shell.o: shell/shell.c
-	$(CC) $(CFLAGS) -c $< -o $@
-
-
-iso: kernel.bin
-	rm -rf iso
+# ==========================================
+# GRUB ISO
+# ==========================================
+iso: $(KERNEL)
 	mkdir -p iso/boot/grub
+	cp $(KERNEL) iso/boot/kernel.bin
+	printf 'set timeout=0\nset default=0\nset gfxmode=1024x768x32\nset gfxpayload=keep\n\nmenuentry "Mini Kernel" {\n\tmultiboot /boot/kernel.bin\n\tboot\n}\n' > iso/boot/grub/grub.cfg
+	grub-mkrescue -o $(ISO) iso
 
-	cp kernel.bin iso/boot/kernel.bin
-
-	printf 'menuentry "Mini Kernel" {\n\tmultiboot /boot/kernel.bin\n\tboot\n}\n' \
-		> iso/boot/grub/grub.cfg
-
-	$(GRUB_MKRESCUE) \
-		-o mini-kernel.iso \
-		iso
-
-
+# ==========================================
+# Run in QEMU
+# ==========================================
 
 run: iso
-	$(QEMU) -cdrom mini-kernel.iso -boot d -no-reboot -no-shutdown -d int,cpu_reset -D qemu.log
+	qemu-system-i386 -cdrom $(ISO)
 
+# ==========================================
+# Clean
+# ==========================================
 
 clean:
-	rm -f $(OBJECTS) \
-		kernel.bin \
-		mini-kernel.iso
-
+	rm -f $(OBJS)
+	rm -f $(KERNEL)
+	rm -f $(ISO)
 	rm -rf iso
+
+# ==========================================
+# Check Multiboot
+# ==========================================
+
+check: $(KERNEL)
+	grub-file --is-x86-multiboot $(KERNEL)
+	@echo "KERNEL OK"

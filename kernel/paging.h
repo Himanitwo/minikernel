@@ -1,6 +1,8 @@
 #ifndef PAGING_H
 #define PAGING_H
 
-void paging_initialize();
+#include "multiboot.h"
+
+void paging_initialize(multiboot_info_t *mb_info);
 
 #endif

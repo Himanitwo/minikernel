@@ -38,26 +38,16 @@ void scheduler_initialize()
  * Wake processes whose
  * wait period has expired.
  */
-void scheduler_on_tick(
-    unsigned int tick)
+void scheduler_on_tick(unsigned int tick)
 {
     int i;
 
-    for (
-        i = 0;
-        i < process_count;
-        i++
-    )
+    for (i = 0; i < MAX_PROCESSES; i++)
     {
-        if (
-            processes[i].state ==
-            WAITING
-            &&
-            processes[i].wake_tick <= tick
-        )
+        if (processes[i].state == WAITING &&
+            processes[i].wake_tick <= tick)
         {
-            processes[i].state =
-                READY;
+            processes[i].state = READY;
         }
     }
 }
@@ -66,31 +56,17 @@ void scheduler_on_tick(
 /*
  * Find next READY process.
  */
-static int find_next_process()
+static int find_next_process(void)
 {
     int offset;
-
     int candidate;
 
-    if (process_count == 0)
-        return -1;
-
-    for (
-        offset = 1;
-        offset <= process_count;
-        offset++
-    )
+    for (offset = 1; offset <= MAX_PROCESSES; offset++)
     {
-        candidate =
-            (last_selected + offset)
-            % process_count;
+        candidate = (last_selected + offset) % MAX_PROCESSES;
 
-        if (
-            processes[candidate].state ==
-            READY
-            &&
-            processes[candidate].entry != 0
-        )
+        if (processes[candidate].state == READY &&
+            processes[candidate].entry != 0)
         {
             return candidate;
         }
@@ -99,74 +75,49 @@ static int find_next_process()
     return -1;
 }
 
-
 /*
  * Context switch.
  */
-unsigned int scheduler_switch(
-    unsigned int current_stack)
+unsigned int scheduler_switch(unsigned int current_stack)
 {
     int next;
 
-    /*
-     * First scheduler activation.
-     */
     if (!scheduler_started)
     {
         scheduler_started = 1;
-
-        idle_stack =
-            current_stack;
+        idle_stack = current_stack;
     }
 
     /*
-     * Save current process.
+     * Save the currently running process.
      */
     if (current_process >= 0)
     {
-        processes[current_process]
-            .stack_pointer =
-            current_stack;
+        processes[current_process].stack_pointer = current_stack;
 
-        if (
-            processes[current_process]
-                .state == RUNNING
-        )
-        {
-            processes[current_process]
-                .state = READY;
-        }
+        if (processes[current_process].state == RUNNING)
+            processes[current_process].state = READY;
 
-        last_selected =
-            current_process;
-
-        current_process = -1;
-
-        return idle_stack;
+        last_selected = current_process;
     }
 
     /*
-     * Find next process.
+     * Immediately find the next READY process.
      */
-    next =
-        find_next_process();
+    next = find_next_process();
 
     if (next < 0)
-        return current_stack;
+    {
+        current_process = -1;
+        return idle_stack;
+    }
 
-    current_process =
-        next;
+    current_process = next;
 
-    processes[current_process]
-        .state =
-        RUNNING;
+    processes[current_process].state = RUNNING;
+    processes[current_process].started = 1;
 
-    processes[current_process]
-        .started =
-        1;
-
-    return processes[current_process]
-        .stack_pointer;
+    return processes[current_process].stack_pointer;
 }
 
 

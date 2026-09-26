@@ -1,41 +1,43 @@
+#include <stdint.h>
+
+#include "multiboot.h"
 #include "terminal.h"
-#include "interrupts.h"
+#include "gdt.h"
 #include "memory.h"
-#include "paging.h"
 #include "process.h"
 #include "scheduler.h"
-#include "gdt.h"
-#include "../shell/shell.h"
+#include "interrupts.h"
+#include "mouse.h"
+#include "display.h"
+#include "gui.h"
+#include "keyboard.h"
 
-void kernel_main()
+void kernel_main(
+    uint32_t magic,
+    multiboot_info_t *mb_info)
 {
-    terminal_initialize();
+    (void)magic;
+    // terminal_initialize();
 
-    terminal_write("MINI KERNEL\n");
-    terminal_write("================\n");
-    gdt_initialize();
-    interrupts_initialize();
+// terminal_initialize();
+display_init_dynamic(mb_info);
+terminal_write("[OK] Framebuffer\n");
 
-    terminal_write("Interrupts initialized\n");
+mouse_initialize();
+terminal_write("[OK] Mouse\n");
 
-    memory_initialize();
+keyboard_initialize();
+terminal_write("[OK] Keyboard\n");
 
-    terminal_write("Memory initialized\n");
+gui_initialize();
+terminal_write("[OK] GUI\n");
 
-    process_initialize();
+gui_run();
 
-    terminal_write("Processes initialized\n");
-
-    scheduler_initialize();
-
-    terminal_write("Scheduler initialized\n");
-
-    terminal_write("Starting shell...\n");
-
-    shell_start();
-
-    while (1)
-    {
-        __asm__ volatile("hlt");
-    }
+gui_run();
+/* GUI test: keep interrupts disabled */
+for (;;)
+{
+    __asm__ volatile ("nop");
+}
 }

@@ -1,32 +1,46 @@
-bits 32
+BITS 32
 
 section .multiboot
 align 4
-    dd 0x1BADB002
-    dd 0
-    dd -(0x1BADB002)
+
+MULTIBOOT_MAGIC    equ 0x1BADB002
+MULTIBOOT_FLAGS    equ 0x00000007
+MULTIBOOT_CHECKSUM equ -(MULTIBOOT_MAGIC + MULTIBOOT_FLAGS)
+
+
+dd MULTIBOOT_MAGIC
+dd MULTIBOOT_FLAGS
+dd MULTIBOOT_CHECKSUM
+
+dd 0                  ; header_addr
+dd 0                  ; load_addr
+dd 0                  ; load_end_addr
+dd 0                  ; bss_end_addr
+dd 0                  ; entry_addr
+
+; Graphics fields
+dd 0                  ; mode_type = linear graphics
+dd 1024               ; width
+dd 768                ; height
+dd 32                 ; depth
 
 section .text
-global start
+
+global _start
 extern kernel_main
 
-start:
+_start:
     cli
 
-    mov esp, stack_top
+    mov esp, 0x02000000
+
+
+    push ebx
+    push eax
 
     call kernel_main
 
-hang:
+.hang:
+    cli
     hlt
-    jmp hang
-
-section .bss
-align 16
-
-stack_bottom:
-    resb 16384
-
-stack_top:
-
-section .note.GNU-stack noalloc noexec nowrite progbits
+    jmp .hang
